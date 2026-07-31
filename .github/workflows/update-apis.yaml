@@ -1,27 +1,20 @@
 on:
-  schedule:
-    - cron: "0 1 * * *"
   workflow_dispatch:
 
 jobs:
   update-apis:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: gh repo fork googleapis/google-api-nodejs-client --fork-name google-api-nodejs-client-autodisco --clone
-        env:
-          GH_TOKEN: ${{ secrets.YOSHI_CODE_BOT_TOKEN }}
-      - run: gh repo sync yoshi-code-bot/google-api-nodejs-client-autodisco --force
-        env:
-          GH_TOKEN: ${{ secrets.YOSHI_CODE_BOT_TOKEN }}
       - run: npm install
-        working-directory: ./google-api-nodejs-client-autodisco
       - run: npm run update-disclaimers
-        working-directory: ./google-api-nodejs-client-autodisco
       - run: npm run submit-prs
-        working-directory: ./google-api-nodejs-client-autodisco
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CODE_BOT_TOKEN: ${{ secrets.YOSHI_CODE_BOT_TOKEN }}
+          CODE_BOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}

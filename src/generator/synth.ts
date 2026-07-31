@@ -83,8 +83,10 @@ export async function synth(options: SynthOptions = {}) {
       `url.https://${process.env.CODE_BOT_TOKEN}@github.com/.insteadOf`,
       'https://github.com/',
     ]);
-    await execa('git', ['config', '--global', 'pack.windowMemory', '512m']);
-    await execa('git', ['config', '--global', 'pack.packSizeLimit', '512m']);
+    await execa('git', ['config', '--global', 'pack.threads', '2']);
+    await execa('git', ['config', '--global', 'pack.windowMemory', '128m']);
+    await execa('git', ['config', '--global', 'pack.packSizeLimit', '256m']);
+    await execa('git', ['config', '--global', 'pack.deltaCacheSize', '128m']);
   }
   const dirs = files.filter(f => {
     return (
@@ -96,15 +98,26 @@ export async function synth(options: SynthOptions = {}) {
   const branch = 'autodisco';
   const changelogs = new Array<string>();
   let totalSemverity = 0;
-  await execa('git', ['checkout', '-B', branch]);
-  printMemoryDiagnostic('Before Git Commit Loop');
+  const apiChangelogMap = new Map<string, {semverity: number; changelog: string}>();
   for (const dir of dirs) {
     const apiChangeSets = changeSets.filter(x => x.api.name === dir);
     const {semverity, changelog} = createChangelog(apiChangeSets);
+    apiChangelogMap.set(dir, {semverity, changelog});
     changelogs.push(changelog);
     if (semverity > totalSemverity) {
       totalSemverity = semverity;
     }
+  }
+  // Release generator heap memory BEFORE creating 288 commits so Node RSS is <150 MB!
+  changeSets.length = 0;
+  if (global.gc) {
+    global.gc();
+  }
+  printMemoryDiagnostic('After Heap GC Release (Before Commit Loop)');
+  await execa('git', ['checkout', '-B', branch]);
+  for (const dir of dirs) {
+    const entry = apiChangelogMap.get(dir) || {semverity: 0, changelog: ''};
+    const {semverity, changelog} = entry;
     const prefix = getPrefix(semverity);
     const postfix = semverity === Semverity.MAJOR ? '!' : '';
     console.log(`Submitting change for ${dir}...`);
@@ -121,12 +134,7 @@ export async function synth(options: SynthOptions = {}) {
     await execa('git', commitParams);
     fs.unlinkSync('message.txt');
   }
-  // Release generator heap memory so V8 can GC before heavy Git operations
-  changeSets.length = 0;
-  if (global.gc) {
-    global.gc();
-  }
-  printMemoryDiagnostic('After Heap GC Release');
+  printMemoryDiagnostic('After Commit Loop');
   await execa('git', ['add', '-A']);
   await execa('git', ['commit', '-m', 'feat: regenerate index files']);
   const prefix = getPrefix(totalSemverity);

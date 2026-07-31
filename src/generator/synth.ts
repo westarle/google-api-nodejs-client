@@ -18,6 +18,17 @@ import * as gaxios from 'gaxios';
 import * as minimist from 'yargs-parser';
 import {Generator} from './generator';
 import {DISCOVERY_URL, ChangeSet} from './download';
+import * as os from 'os';
+
+function printMemoryDiagnostic(stage: string) {
+  const freeMB = Math.round(os.freemem() / (1024 * 1024));
+  const totalMB = Math.round(os.totalmem() / (1024 * 1024));
+  const rssMB = Math.round(process.memoryUsage().rss / (1024 * 1024));
+  const heapUsedMB = Math.round(process.memoryUsage().heapUsed / (1024 * 1024));
+  console.log(
+    `[Memory Diagnostic - ${stage}] OS Free: ${freeMB}MB / Total: ${totalMB}MB | Node RSS: ${rssMB}MB | Heap Used: ${heapUsedMB}MB`
+  );
+}
 
 export enum Semverity {
   PATCH = 1,
@@ -39,8 +50,10 @@ export async function synth(options: SynthOptions = {}) {
   const gen = new Generator();
   let changeSets: ChangeSet[] = [];
   if (!options.useCache) {
+    printMemoryDiagnostic('Before API Generation');
     console.log('Removing old APIs...');
     changeSets = await gen.generateAllAPIs(DISCOVERY_URL, false);
+    printMemoryDiagnostic('After API Generation');
   }
   const statusResult = await execa('git', ['status', '--porcelain']);
   const status = statusResult.stdout;
@@ -70,8 +83,7 @@ export async function synth(options: SynthOptions = {}) {
       `url.https://${process.env.CODE_BOT_TOKEN}@github.com/.insteadOf`,
       'https://github.com/',
     ]);
-    await execa('git', ['config', '--global', 'pack.threads', '1']);
-    await execa('git', ['config', '--global', 'pack.windowMemory', '256m']);
+    await execa('git', ['config', '--global', 'pack.windowMemory', '512m']);
     await execa('git', ['config', '--global', 'pack.packSizeLimit', '512m']);
   }
   const dirs = files.filter(f => {
@@ -85,6 +97,7 @@ export async function synth(options: SynthOptions = {}) {
   const changelogs = new Array<string>();
   let totalSemverity = 0;
   await execa('git', ['checkout', '-B', branch]);
+  printMemoryDiagnostic('Before Git Commit Loop');
   for (const dir of dirs) {
     const apiChangeSets = changeSets.filter(x => x.api.name === dir);
     const {semverity, changelog} = createChangelog(apiChangeSets);
@@ -113,9 +126,11 @@ export async function synth(options: SynthOptions = {}) {
   if (global.gc) {
     global.gc();
   }
+  printMemoryDiagnostic('After Heap GC Release');
   await execa('git', ['add', '-A']);
   await execa('git', ['commit', '-m', 'feat: regenerate index files']);
   const prefix = getPrefix(totalSemverity);
+  printMemoryDiagnostic('Before Git Push');
   await execa('git', ['push', 'origin', branch, '--force']);
   try {
     // Open the pull request with the YOSHI_CODE_BOT_TOKEN

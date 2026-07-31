@@ -18,6 +18,7 @@ import {Schema, Schemas} from 'googleapis-common';
 import * as nunjucks from 'nunjucks';
 import * as path from 'path';
 import * as util from 'util';
+import * as os from 'os';
 import Q from 'p-queue';
 import * as prettier from 'prettier';
 import * as minimist from 'yargs-parser';
@@ -119,7 +120,10 @@ export class Generator {
     const indexPath = path.join(discoveryPath, 'index.json');
     const file = await readFile(indexPath, 'utf8');
     const apis = (JSON.parse(file) as Schemas).items;
-    const queue = new Q({concurrency: 50});
+    const queue = new Q({concurrency: 10});
+    const freeMBStart = Math.round(os.freemem() / (1024 * 1024));
+    const rssMBStart = Math.round(process.memoryUsage().rss / (1024 * 1024));
+    console.log(`[Memory Diagnostic - Starting Generation] OS Free: ${freeMBStart}MB | Node RSS: ${rssMBStart}MB | Concurrency: 10`);
     console.log(`Generating ${apis.length} APIs...`);
     await queue.addAll(
       apis.map(api => async () => {
@@ -158,6 +162,9 @@ export class Generator {
         }
       }),
     );
+    const freeMBEnd = Math.round(os.freemem() / (1024 * 1024));
+    const rssMBEnd = Math.round(process.memoryUsage().rss / (1024 * 1024));
+    console.log(`[Memory Diagnostic - Completed Generation] OS Free: ${freeMBEnd}MB | Node RSS: ${rssMBEnd}MB`);
     await this.generateIndex(apis);
     return changes;
   }

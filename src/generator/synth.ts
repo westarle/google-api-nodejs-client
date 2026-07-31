@@ -152,6 +152,17 @@ export async function synth(options: SynthOptions = {}) {
       },
     });
   } catch (e) {
+    const errResponse = (e as gaxios.GaxiosError).response?.data;
+    if (
+      (e as gaxios.GaxiosError).status === 422 &&
+      JSON.stringify(errResponse).includes('A pull request already exists')
+    ) {
+      console.log(
+        'Pull request already exists for autodisco branch; continuing.'
+      );
+      await execa('git', ['checkout', 'main']);
+      return;
+    }
     if ((e as gaxios.GaxiosError).response?.data) {
       console.error((e as gaxios.GaxiosError).response?.data);
       if (
